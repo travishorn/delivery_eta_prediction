@@ -7,6 +7,11 @@ import joblib
 from typing import Dict, Optional
 from geopy.distance import geodesic
 import os
+from kafka import KafkaConsumer
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 class ETAPredictor:
     def __init__(self, model_path: str = 'eta_predictor_model.joblib', 
@@ -74,49 +79,54 @@ class ETAPredictor:
             ).miles
         }
 
-def monitor_delivery_data(predictor: ETAPredictor, data_file: str = 'delivery_data.jsonl'):
-    """Monitor the delivery data file for new records and generate predictions."""
-    print(f"Monitoring {data_file} for new delivery updates...")
+def monitor_delivery_data(predictor: ETAPredictor, 
+                         kafka_bootstrap_servers: str = None,
+                         kafka_topic: str = None,
+                         consumer_group_id: str = 'eta-predictor-group'):
+    """Monitor Kafka for new delivery updates and generate predictions."""
+    # Get configuration from environment variables if not provided
+    kafka_bootstrap_servers = kafka_bootstrap_servers or os.getenv('KAFKA_BOOTSTRAP_SERVERS')
+    kafka_topic = kafka_topic or os.getenv('KAFKA_TOPIC', 'driver_updates')
+    
+    if kafka_bootstrap_servers is None:
+        raise ValueError("Kafka bootstrap servers must be provided either directly or via KAFKA_BOOTSTRAP_SERVERS environment variable")
+    
+    print(f"Connecting to Kafka at {kafka_bootstrap_servers}...")
+    print(f"Subscribing to topic: {kafka_topic}")
     print("Press Ctrl+C to stop\n")
     
     try:
-        while True:
-            # Check if file exists
-            if not os.path.exists(data_file):
-                time.sleep(1)
-                continue
+        # Initialize Kafka consumer
+        consumer = KafkaConsumer(
+            kafka_topic,
+            bootstrap_servers=kafka_bootstrap_servers,
+            group_id=consumer_group_id,
+            auto_offset_reset='latest',
+            value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+        )
+        
+        for message in consumer:
+            data_point = message.value
+            prediction = predictor.predict_eta(data_point)
             
-            # Read new data points
-            with open(data_file, 'r') as f:
-                # Seek to last processed position
-                f.seek(predictor.last_processed_position)
-                
-                # Process new lines
-                for line in f:
-                    data_point = json.loads(line)
-                    prediction = predictor.predict_eta(data_point)
-                    
-                    # Format and print prediction
-                    eta_diff = prediction['eta_difference_minutes']
-                    eta_status = "ON TIME" if abs(eta_diff) < 5 else "DELAYED" if eta_diff > 0 else "EARLY"
-                    
-                    print(f"[{prediction['current_time']}] Driver {prediction['driver_id']} | "
-                          f"Status: {prediction['current_status']:>13} | "
-                          f"Distance: {prediction['distance_remaining_mi']:>6.2f} mi | "
-                          f"Speed: {prediction['current_speed_mph']:>6.1f} mph")
-                    print(f"    Initial ETA: {prediction['initial_eta']}")
-                    print(f"    Updated ETA: {prediction['predicted_eta']} "
-                          f"({abs(eta_diff):.1f} min {'later' if eta_diff > 0 else 'earlier'} | {eta_status})")
-                    print("-" * 100)
-                
-                # Update last processed position
-                predictor.last_processed_position = f.tell()
+            # Format and print prediction
+            eta_diff = prediction['eta_difference_minutes']
+            eta_status = "ON TIME" if abs(eta_diff) < 5 else "DELAYED" if eta_diff > 0 else "EARLY"
             
-            # Sleep briefly before next check
-            time.sleep(1)
+            print(f"[{prediction['current_time']}] Driver {prediction['driver_id']} | "
+                  f"Status: {prediction['current_status']:>13} | "
+                  f"Distance: {prediction['distance_remaining_mi']:>6.2f} mi | "
+                  f"Speed: {prediction['current_speed_mph']:>6.1f} mph")
+            print(f"    Initial ETA: {prediction['initial_eta']}")
+            print(f"    Updated ETA: {prediction['predicted_eta']} "
+                  f"({abs(eta_diff):.1f} min {'later' if eta_diff > 0 else 'earlier'} | {eta_status})")
+            print("-" * 100)
             
     except KeyboardInterrupt:
         print("\nStopped monitoring delivery data.")
+    finally:
+        if 'consumer' in locals():
+            consumer.close()
 
 def main():
     predictor = ETAPredictor()
