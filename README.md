@@ -62,7 +62,7 @@ Set the `KAFKA_BOOTSTRAP_SERVERS` environment variable. You can do it in the
 terminal or create a `.env` file with the following contents.
 
 ```
-KAFKA_BOOTSTRAP_SERVERS=192.168.1.74:9092
+KAFKA_BOOTSTRAP_SERVERS=[ip_address_of_server]:9092
 ```
 
 If your topic is called something other than `driver_updates`, you can set an
