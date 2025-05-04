@@ -53,6 +53,21 @@ traffic, and other factors.
 
 ## Running the System
 
+### Prerequisites
+
+You must have a Kafka server already running with a topic called
+`driver_updates`.
+
+Set the `KAFKA_BOOTSTRAP_SERVERS` environment variable. You can do it in the
+terminal or create a `.env` file with the following contents.
+
+```
+KAFKA_BOOTSTRAP_SERVERS=192.168.1.74:9092
+```
+
+If your topic is called something other than `driver_updates`, you can set an
+environment variable called `KAFKA_TOPIC`, as well.
+
 ### 1. Generate Training Data
 
 First, run the simulator to generate training data:
@@ -64,7 +79,7 @@ python src/simulator.py
 The simulator will:
 
 - Create 3 drivers with random start/end locations
-- Generate data in `delivery_data.jsonl`
+- Generate data and stream it to your Kafka server
 - Display real-time status updates
 
 You may consider setting `time_acceleration_factor=60.0` to run at 60x speed (1
@@ -86,7 +101,7 @@ python src/train_model.py
 
 This will:
 
-- Load and process the training data
+- Load and process the training data from the Kafka server
 - Train a Random Forest model
 - Display performance metrics
 - Save the model (`eta_predictor_model.joblib`) and encoders
@@ -124,7 +139,7 @@ The prediction service will:
 
 ## Data Format
 
-The simulator generates data points in JSON Lines format:
+The simulator generates data points in JSON format and streams them to Kafka:
 
 ```json
 {
@@ -153,7 +168,6 @@ delivery_eta_prediction/
 │   ├── simulator.py      # Real-time delivery simulator
 │   ├── train_model.py    # ML model training script
 │   └── predictor.py      # Real-time prediction service
-├── delivery_data.jsonl           # Simulated data
 ├── eta_predictor_model.joblib    # Trained ML model
 └── label_encoders.joblib         # Feature encoders
 ```
